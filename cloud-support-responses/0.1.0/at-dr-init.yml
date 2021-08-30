@@ -1,0 +1,192 @@
+name: at-dr-init
+parent: default
+
+matches:
+  - trigger: ":atdrinit"
+    # Most of the text mangling is done in a custom script using text values filled in below
+    replace: |
+      To aid in our investigation, please provide the following:
+
+      {{selection_options}}
+    vars:
+      # Form for capturing user input
+      - name: "capture"
+        type: form
+        params:
+          layout: |
+            Atlas Application Driver/Connection Issues
+            ---------
+            This snippet is typically used when you would like to diagnose connection issues from applications utilizing MongoDB drivers that the customer seems to be experiencing.
+            ---
+            Check/un-check items depending on what information has already been provided by the customer.
+            ---
+            TAGS: Application, Driver, Connection Issues, Atlas
+            ---------
+            Project ID: {{project_id}}
+            Cluster PRIMARY hostname: {{primary_hostname}}
+            Cluster Type: {{cluster_type}}
+            ---------
+            Application-specific asks are starred (**):
+            ---
+            Driver/Driver Version: {{ask_driver}}
+            Connection String: {{ask_conn_string}}
+            IP in Access List?: {{ask_ip_access_list}}
+            ** Application Error Logs: {{ask_app_error_logs}}
+            ** Time of Last Issue Occurrence: {{ask_last_occurrence}}
+            ** Application Connection Logic: {{ask_connection_logic}}
+            ** Application Server IPs: {{ask_server_ips}}
+            Connect via mongo shell: {{ask_mongo_shell}}
+            Basic Connectivity Tests: {{ask_connectivity_tests}}
+          fields:
+            # Setting all field data types on the form
+            project_id:
+              type: text
+            primary_hostname:
+              type: text
+            cluster_type:
+              type: choice
+              values:
+                - Replica set
+                - Sharded cluster
+            ask_driver:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_conn_string:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_ip_access_list:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_app_error_logs:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_last_occurrence:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_connection_logic:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_server_ips:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_mongo_shell:
+              type: choice
+              values:
+                - Yes
+                - No
+            ask_connectivity_tests:
+              type: choice
+              values:
+                - Yes
+                - No
+      # Post-processing of form data into variables
+      - name: formatted_hostname_srv
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/regex_replace.py"
+            - '-shard-\d\d-\d\d'
+            - ""
+            - "{{capture.primary_hostname}}"
+      - name: port
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/case.py"
+            - "{{capture.cluster_type}}"
+            - "Replica set"
+            - "27017"
+            - "Sharded cluster"
+            - "27016"
+      # Variables holding the text for each option, to be assembled by a python script
+      - name: text_driver
+        type: dummy
+        params:
+          echo: >
+                - The MongoDB driver and driver version you are using to connect to your Atlas cluster.
+                Please see the [Driver Compatibility Reference](https://docs.mongodb.com/ecosystem/drivers/driver-compatibility-reference/)
+                to ensure you are using the correct driver version for your cluster's version of MongoDB.
+      - name: text_conn_string
+        type: dummy
+        params:
+          echo: >
+                - The connection string being used to connect to the Atlas cluster (omitting your password).
+      - name: text_ip_access_list
+        type: dummy
+        params:
+          echo: >
+                - Confirmation that the host machine's IP is within
+                [the project's IP Access List](https://cloud.mongodb.com/v2/{{capture.project_id}}#security/network/whitelist).
+                You can determine the machine's current IP by navigating to https://ipinfo.io/ip.
+      - name: text_app_error_logs
+        type: dummy
+        params:
+          echo: >
+                - The full output of any informational or error messages logged
+                in the application upon encountering this issue.
+      - name: text_last_occurrence
+        type: dummy
+        params:
+          echo: >
+                - The date, time, and timezone of the most recent occurrence of this issue.
+      - name: text_connection_logic
+        type: dummy
+        params:
+          echo: >
+                - The portion of code in which connections are being established to the Atlas cluster;
+                in particular, any non-default configuration settings being passed to the driver within the application code.
+      - name: text_server_ips
+        type: dummy
+        params:
+          echo: >
+                 - The host application server IP addresses, if they are known,
+                 so that we may correlate them with the `mongod` logs.
+      - name: text_mongo_shell
+        type: dummy
+        params:
+          echo: |
+              - Verification that the host machine can connect to the `mongo` shell via the following command (supplying the appropriate password):
+              ```bash
+              mongo "mongodb+srv://{{formatted_hostname_srv}}/test" --username <username> --verbose
+              ```
+      - name: text_connectivity_tests
+        type: dummy
+        params:
+          echo: |
+              - The output of the following commands run from the machine where the application is hosted (please run the set of commands that pertain to your particular operating system):
+              ```bash
+              # macOS/Linux Terminal
+              ping -c 10 {{capture.primary_hostname}}
+              nc -zv {{capture.primary_hostname}} {{port}}
+              nslookup -debug -type=SRV _mongodb._tcp.{{formatted_hostname_srv}}
+              nslookup -debug -type=TXT {{formatted_hostname_srv}}
+
+              # Windows PowerShell
+              ping /n 10 {{capture.primary_hostname}}
+              Test-NetConnection -Port {{port}} -InformationLevel "Detailed" -ComputerName "{{capture.primary_hostname}}"
+              nslookup -debug -q=SRV _mongodb._tcp.{{formatted_hostname_srv}}
+              nslookup -debug -q=TXT {{formatted_hostname_srv}}
+              ```
+      # Assembles option text with script, as a bug prevents some needed formatting changes
+      - name: selection_options
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/atdrinit_selection_options.py"

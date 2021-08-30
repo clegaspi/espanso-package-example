@@ -1,0 +1,246 @@
+name: template-help-init
+parent: default
+
+matches:
+  - trigger: ":templatehelpinit"
+    # Most of the text mangling is done in a custom script using text values filled in below
+    replace: |
+      h3. Issue + Relevant Info
+
+      $|$
+
+      h3. Requested Action
+
+
+      {{if_logs}}
+      h3. Status
+
+      {{status_table}}
+
+      h3. Checklist
+
+      |Is this an OOM/CPU related?|{{capture.oom_cpu_related}}|
+      |Is this related to throttled IOPS?|{{capture.throttled_iops}}|
+      |Is this related to falling off the {.{.oplog.}.}?|{{capture.fell_off_oplog}}|
+      |Is this customer out of storage (checked {.{.df -h.}.})?|{{capture.out_of_storage}}|
+      |Is this related to an upgrade/stuck plan?|{{capture.stuck_upgrade_plan}}|
+      |Is this related to a migration?|{{capture.is_migration}}|
+      |Is this ticket related to serverless?|{{capture.is_serverless}}|
+
+
+    vars:
+      # Form for capturing user input
+      - name: "capture"
+        type: form
+        params:
+          layout: |
+            Template for HELP Ticket Initial Description
+            ---------
+            This is the template to be used for HELP ticket initial descriptions.
+            It provides a framework of common investigation points for customer issues that result in HELP ticket escalations.
+            NOTE: not every case will warrant an investigation into all of these areas. This is boilerplate, not a strict guide.
+            ---
+            P1 should NOT be opened if the instance size is M20 or below,
+            OR if the PRIMARY is still able to carry out read or write operations.
+            ---
+            *Status*
+            ---------
+            Severity: {{priority_level}}
+            Instance Size: {{instance_size}}
+            Production-down NOW?: {{prod_down}}
+            If YES, how long?: {{prod_down_duration}}
+            ---
+            Intercom or SF Case Link: {{case_link}}
+            ---
+            Org/Project/Cluster Link: {{atlas_link}}
+            -----------------------------------
+            Affected Nodes and Status (1 node per line, please! e.g. 00 - DOWN, etc.):
+            {{rs_topology}}
+            ------------------------------------
+            Restarted any nodes?: {{nodes_restarted}}
+            ------------------------------------
+            Do you have logs to show?: {{logs_provided}}
+            PLEASE NOTE: The above will expand a section called "Relevant Logs" for you to fill out after this snippet is expanded.
+            ---
+            *Checklist*:
+            OOM/CPU related?: {{oom_cpu_related}}
+            Throttled IOPS?: {{throttled_iops}}
+            Fell off the oplog?: {{fell_off_oplog}}
+            Out of storage?: {{out_of_storage}}
+            Stuck upgrade/plan?: {{stuck_upgrade_plan}}
+            Is this a migration?: {{is_migration}}
+            Is this ticket related to serverless?: {{is_serverless}}
+
+            
+          fields:
+            # Setting all field data types on the form
+            priority_level:
+              type: choice
+              values:
+                - S4
+                - S3
+                - S2
+                - S1
+                - N/A
+            instance_size:
+              type: choice
+              values:
+                - MTM
+                - M0
+                - M2
+                - M5
+                - M10
+                - M20
+                - M30
+                - M40
+                - M50
+                - M60
+                - M80
+                - M90
+                - M100
+                - M140
+                - M200
+                - M300
+                - M400
+                - M700
+                - Serverless
+                - INSTANCE SIZE NOT IN LIST
+            prod_down:
+              type: choice
+              values:
+                - NO
+                - YES
+            prod_down_duration:
+              type: text
+            # conditional logic needed for case_link (parse and find link type)
+            case_link:
+              type: text
+            # conditional logic needed for atlas_link (parse and format)
+            atlas_link:
+              type: text
+            rs_topology:
+              type: text
+              multiline: true
+            nodes_restarted:
+              type: choice
+              values:
+                - NO
+                - YES
+            logs_provided:
+              type: choice
+              values:
+                - NO
+                - YES
+            oom_cpu_related:
+              type: choice
+              values:
+                - NO
+                - YES
+            throttled_iops:
+              type: choice
+              values:
+                - NO
+                - YES
+            fell_off_oplog:
+              type: choice
+              values:
+                - NO
+                - YES
+            out_of_storage:
+              type: choice
+              values:
+                - NO
+                - YES
+            stuck_upgrade_plan:
+              type: choice
+              values:
+                - NO
+                - YES
+            is_migration:
+              type: choice
+              values:
+                - NO
+                - YES
+            is_serverless:
+              type: choice
+              values:
+                - NO
+                - YES
+
+      # Dummy variables holding multi-line text for use in functions
+      - name: text_logs
+        type: dummy
+        params:
+          echo: |
+                h4. Relevant Logs:
+
+                {.code.}
+                THIS IS WHERE LOGS SHOULD GO; ENSURE PII IS STRIPPED
+                {.code.}
+      - name: text_prod_down
+        type: dummy
+        params:
+          echo: >
+                |Is the customer production-down NOW?|{{capture.prod_down}}|
+      - name: text_prod_down_duration
+        type: dummy
+        params:
+          echo: >
+                |How long has the customer been production-down?|{{capture.prod_down_duration}}|
+      - name: text_rs_topology
+        type: dummy
+        params:
+          echo: >
+                |Affected Nodes & Status|{{capture.rs_topology}}|
+      - name: text_restarted_nodes
+        type: dummy
+        params:
+          echo: >
+                |Have I attempted to restart the affected nodes?|**{{capture.nodes_restarted}}**|
+        
+      # Post-processing of form data into variables
+      - name: formatted_case_link
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/case_link_formatter.py"
+            - "{{capture.case_link}}"
+      - name: formatted_atlas_link
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/atlas_link_formatter.py"
+            - "{{capture.atlas_link}}"
+      - name: if_logs
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/case.py"
+            - "{{capture.logs_provided}}"
+            - "YES"
+            - "{{text_logs}}"
+            - "NO"
+            - ""
+
+      # Dummies that need script output
+      - name: text_case_link
+        type: dummy
+        params:
+          echo: >
+                |Intercom/Case Link and Severity | {{formatted_case_link}} |
+      - name: text_atlas_link
+        type: dummy
+        params:
+          echo: >
+                |{{formatted_atlas_link}}|
+
+      # Status table builder invocation
+      - name: status_table
+        type: script
+        params:
+          args:
+            - python3
+            - "%CONFIG%/user/tse-espanso/scripts/templatehelpinit_status_table_builder.py"
